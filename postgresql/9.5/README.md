@@ -1,6 +1,6 @@
 # docker
 
-Simple usage of official postgresql docker image tab 9.3
+Simple usage of official postgresql docker image tab 9.5
 
 
 Run the server
