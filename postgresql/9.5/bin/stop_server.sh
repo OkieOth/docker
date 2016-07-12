@@ -2,7 +2,7 @@
 
 scriptPos=${0%/*}
 
-containerName=psql_server_test
+containerName=psql_9_5_server_test
 
 if docker ps -f name="/$containerName" | grep "$containerName" > /dev/null; then
     docker stop "$containerName"
