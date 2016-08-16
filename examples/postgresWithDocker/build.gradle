@@ -1,0 +1,159 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+apply plugin: 'groovy'
+
+sourceCompatibility = '1.7'
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+sourceCompatibility = '1.8'
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+// NetBeans will automatically add "run" and "debug" tasks relying on the
+// "mainClass" property. You may however define the property prior executing
+// tasks by passing a "-PmainClass=<QUALIFIED_CLASS_NAME>" argument.
+//
+// Note however, that you may define your own "run" and "debug" task if you
+// prefer. In this case NetBeans will not add these tasks but you may rely on
+// your own implementation.
+if (!hasProperty('mainClass')) {
+    ext.mainClass = ''
+}
+
+sourceCompatibility = '1.7'
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
+project.group = 'de.oth.docker_test'
+project.version = '0.1-SNAPSHOT'
+
+def it_contName = project.name
+def it_imageName = 'postgres'
+def it_imageTag = '9.3'
+def it_dbUser = 'batman'
+def it_dbUserPwd = 'betman999'
+def it_dbName = 'pg_test'
+def it_localPort = 6001
+
+/*
+ * the following attributes need to be declared in $HOME/.gradle/gradle.properties
+    mavenReleaseRepo=http://localhost:8081/content/repositories/releases
+    mavenSnapshotRepo=http://localhost:8081/content/repositories/snapshots
+    mavenUser=admin
+    mavenUserPwd=admin123
+    mavenBaseRepo=http://localhost:8081/content/groups/public
+ **/
+
+uploadArchives {
+    repositories{
+        mavenDeployer {
+            repository(url: "${mavenReleaseRepo}") {
+                    authentication(userName: "${mavenUser}", password: "${mavenUserPwd}")
+            }        
+            snapshotRepository(url: "${mavenSnapshotRepo}") {
+                    authentication(userName: "${mavenUser}", password: "${mavenUserPwd}")
+            }        
+            pom.version = "${project.version}"
+            pom.artifactId = "${project.name}"
+            pom.groupId = "${project.group}"        
+        }
+    }
+}
+
+repositories {
+    mavenLocal()
+    maven {
+        url "${mavenBaseRepo}"
+    }
+    mavenCentral()
+}
+
+
+dependencies {    
+    testCompile group: 'junit', name: 'junit', version: '4.10'
+    compile 'postgresql:postgresql:9.1-901-1.jdbc4'
+}
+
+configurations {
+    integrationTestCompile.extendsFrom testCompile
+    integrationTestRuntime.extendsFrom testRuntime
+}
+
+sourceSets {
+    integrationTest {
+        java {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration_test/java')
+        }
+    }
+}
+
+task integrationTest(type: Test) {
+    doFirst {
+        "docker ps -a -f name=/$it_contName".execute().in.eachLine {
+            if (it.indexOf("$it_contName")!=-1) {
+                println "docker rm -f $it_contName"
+                "docker rm -f $it_contName".execute()
+            }
+        }
+
+        def f = File.createTempFile("$it_contName", Long.toString(System.nanoTime()))
+        f.delete()
+        f.mkdir()
+        def dataDir = f.getAbsolutePath()
+
+        def sout1 = new StringBuffer()
+        def serr1 = new StringBuffer()
+        def proc1 = "docker run -p 127.0.0.1:$it_localPort:5432 --name $it_contName -e POSTGRES_PASSWORD=$it_dbUserPwd -e POSTGRES_USER=$it_dbUser -e POSTGRES_DB=$it_dbName -e PGDATA=/opt/pgdata -v $dataDir:/opt/pgdata -d $it_imageName:$it_imageTag".execute()
+        proc1.consumeProcessOutput(sout1,serr1)
+        if (serr1.size()>0)
+            println "Error while start test server: $serr1"    
+        else
+            println "test server started"
+        def fertig=false
+        def waitCount=0
+        while (!fertig) {
+            def sout2 = new StringBuffer()
+            def serr2 = new StringBuffer()
+            def proc2 = "docker run -e PGPASSWORD=$it_dbUserPwd --rm --link $it_contName:postgres $it_imageName:$it_imageTag psql -t -h postgres -U $it_dbUser -c \\q -d $it_dbName".execute()
+            proc2.consumeProcessOutput(sout2,serr2)
+            proc2.waitForOrKill(10000)
+            if (serr2.size()>0)
+                println "error while open test connection ..."    
+            else
+                fertig = true
+
+            if (!fertig) {
+                sleep(1000)
+                waitCount++
+                if (waitCount==20)
+                    fertig = true
+            }
+        }
+
+        /*
+        def fInit = new File('src/main/resources/datenbank')
+        def initOrdner=fInit.getAbsolutePath()
+        println "initOrdner: $initOrdner"
+        println 'initialize db ...'
+        def sout3 = new StringBuffer()
+        def serr3 = new StringBuffer()
+        def proc3 = "docker run -e PGPASSWORD=$dbUserPwd -v $initOrdner:/opt/tmp --rm --link $contName:postgres $imageName:$imageTag psql -h postgres -U $dbUser -f /opt/tmp/test_init_db.sql -d $dbName".execute()
+        proc3.consumeProcessOutput(sout3,serr3)
+        if (serr3.size()>0)
+            println "error while initialize: $serr3"    
+        else
+            println 'db initialized'
+        */
+    }
+    
+    doLast {
+        println 'here I will stop docker'
+        "docker stop $it_contName".execute()
+    }
+    testClassesDir = sourceSets.integrationTest.output.classesDir
+    classpath = sourceSets.integrationTest.runtimeClasspath
+    outputs.upToDateWhen { false }
+}
+
+check.dependsOn integrationTest
+integrationTest.mustRunAfter test
