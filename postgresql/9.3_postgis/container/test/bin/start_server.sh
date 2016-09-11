@@ -1,0 +1,1 @@
+../../../bin/container/start_server.sh

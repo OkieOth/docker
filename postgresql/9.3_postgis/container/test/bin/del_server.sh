@@ -1,0 +1,1 @@
+../../../bin/container/del_server.sh

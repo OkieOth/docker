@@ -1,0 +1,1 @@
+../../../bin/container/stop_server.sh
